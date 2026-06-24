@@ -1,0 +1,1 @@
+# Awen Subtitle Engine - Configuration

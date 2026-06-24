@@ -1,0 +1,45 @@
+version: "3.8"
+
+services:
+  api:
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ${MEDIA_ROOT:-/media}:/media:ro
+      - ${SUBTITLE_ROOT:-./data/subtitles}:/data/subtitles
+      - ./data/db:/data/db
+    env_file:
+      - .env
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+
+  worker:
+    build: .
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=1
+    volumes:
+      - ${MEDIA_ROOT:-/media}:/media:ro
+      - ${SUBTITLE_ROOT:-./data/subtitles}:/data/subtitles
+      - ${TEMP_DIR:-./data/temp}:/data/temp
+      - ./data/db:/data/db
+    env_file:
+      - .env
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:

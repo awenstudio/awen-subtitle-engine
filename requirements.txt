@@ -1,0 +1,25 @@
+# Web
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+pydantic==2.9.0
+
+# Task Queue
+celery[redis]==5.4.0
+redis==5.0.0
+
+# ASR
+faster-whisper==1.1.0
+
+# Translation
+google-generativeai==0.8.0
+openai==1.50.0
+
+# Video
+ffmpeg-python==0.2.0
+
+# DB
+sqlalchemy==2.0.35
+
+# Utils
+watchdog==4.0.0
+python-dotenv==1.0.1
