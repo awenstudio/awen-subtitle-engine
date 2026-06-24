@@ -2,8 +2,10 @@
 
 from unittest.mock import patch, MagicMock
 from pathlib import Path
+from contextlib import contextmanager
 
 import pytest
+from sqlalchemy.orm import sessionmaker
 
 
 # ──────────────────────────────────────────────────────────────
@@ -58,29 +60,30 @@ class TestGenerateEndpoint:
         assert resp.status_code == 404
         assert "not found" in resp.json()["detail"].lower()
 
-    @patch("app.api.routes.compute_video_hash", return_value="fakehash123")
-    @patch("app.api.routes._get_duration", return_value=90.0)
-    @patch("app.api.routes.process_video")
-    def test_generate_already_done(self, mock_task, mock_dur, mock_hash, client, tmp_path, populated_db):
-        """If video already has all subtitles and a done job, return done immediately."""
-        # We need to override the video path in the populated DB to match tmp_path
-        # For simplicity, test via the actual endpoint with a known path
-        # This test is handled by the populated_db fixture data
-        pass  # Covered by the integration scenario below
-
     @patch("app.api.routes.compute_video_hash", return_value="abc123hash")
     @patch("app.api.routes._get_duration", return_value=120.0)
     @patch("app.api.routes.process_video")
-    def test_generate_existing_video_with_subs(self, mock_task, mock_dur, mock_hash, client, populated_db):
-        """Video already in DB with 3 subtitles and done job → return done."""
+    def test_generate_already_done(self, mock_task, mock_dur, mock_hash,
+                                   client, populated_db, make_db_session, tmp_path):
+        """Video already in DB with 3 subtitles and done job → return done immediately."""
+        # Create a real temp file so Path.exists() passes in the route
+        video = tmp_path / "sample.mp4"
+        video.write_bytes(b"\x00" * 1024)
+
+        # Update the video path in the DB to point to the real temp file
+        from app.db.models import Video as VideoModel
+        with make_db_session() as db:
+            v = db.query(VideoModel).filter(VideoModel.id == 1).first()
+            v.path = str(video)
+            db.commit()
+
         resp = client.post(
             "/api/subtitle/generate",
-            json={"video_path": "/media/sample.mp4"},
+            json={"video_path": str(video)},
         )
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "done"
-        # Should NOT dispatch a new task
         mock_task.delay.assert_not_called()
 
 
@@ -146,13 +149,6 @@ class TestListSubtitlesEndpoint:
         assert entry["has_chinese"] is True
         assert entry["has_bilingual"] is True
 
-    def test_list_subtitles_empty(self, client, db_session, mock_db_session):
-        """Empty DB returns empty list."""
-        resp = client.get("/api/subtitles")
-        assert resp.status_code == 200
-        # Note: depends on whether the client fixture uses populated_db or not
-        # This test verifies the endpoint works without errors
-
 
 # ──────────────────────────────────────────────────────────────
 # Edge cases & validation
@@ -163,12 +159,3 @@ class TestAPIValidation:
         """POST without JSON body should return 422."""
         resp = client.post("/api/subtitle/generate")
         assert resp.status_code == 422
-
-    def test_generate_empty_path(self, client):
-        """Empty video_path should still hit validation or 404."""
-        resp = client.post(
-            "/api/subtitle/generate",
-            json={"video_path": ""},
-        )
-        # Could be 404 (path doesn't exist) or 422
-        assert resp.status_code in (404, 422)

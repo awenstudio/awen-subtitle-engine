@@ -2,14 +2,14 @@
 
 import os
 import sys
-import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from contextlib import contextmanager
 
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 # Ensure project root is on sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -25,8 +25,12 @@ from app.db.models import Video, Job, Subtitle  # noqa: E402
 
 @pytest.fixture()
 def db_engine():
-    """In-memory SQLite engine for testing."""
-    engine = create_engine("sqlite:///:memory:", echo=False)
+    """In-memory SQLite engine with StaticPool for thread safety (TestClient)."""
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     Base.metadata.create_all(bind=engine)
     yield engine
     Base.metadata.drop_all(bind=engine)
@@ -43,20 +47,29 @@ def db_session(db_engine):
 
 
 @pytest.fixture()
-def mock_db_session(db_session):
-    """Patch get_db_session everywhere it is imported so tests use the in-memory DB."""
-    @contextmanager
-    def _fake():
-        try:
-            yield db_session
-        finally:
-            pass
+def make_db_session(db_engine):
+    """Factory that returns a context-manager yielding a new session."""
+    Session = sessionmaker(bind=db_engine)
 
-    with patch("app.db.database.get_db_session", _fake), \
-         patch("app.api.routes.get_db_session", _fake), \
-         patch("app.workers.tasks.get_db_session", _fake), \
-         patch("app.watcher.get_db_session", _fake):
-        yield db_session
+    @contextmanager
+    def _factory():
+        session = Session()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    return _factory
+
+
+@pytest.fixture()
+def mock_db_session(make_db_session):
+    """Patch get_db_session everywhere it is imported so tests use the in-memory DB."""
+    with patch("app.db.database.get_db_session", make_db_session), \
+         patch("app.api.routes.get_db_session", make_db_session), \
+         patch("app.workers.tasks.get_db_session", make_db_session), \
+         patch("app.watcher.get_db_session", make_db_session):
+        yield make_db_session
 
 
 # ---------------------------------------------------------------------------
@@ -71,9 +84,9 @@ def tmp_dir(tmp_path):
 
 @pytest.fixture()
 def fake_video(tmp_dir):
-    """Create a small fake video file (just bytes; size is enough for hash tests)."""
+    """Create a small fake video file."""
     video = tmp_dir / "test_video.mp4"
-    video.write_bytes(os.urandom(2048))  # 2 KB random data
+    video.write_bytes(os.urandom(2048))
     return video
 
 
@@ -98,7 +111,7 @@ def sample_translations():
 
 
 @pytest.fixture()
-def populated_db(db_engine, sample_segments):
+def populated_db(db_engine):
     """DB with one Video, Job, and three Subtitle records pre-loaded."""
     Session = sessionmaker(bind=db_engine)
     session = Session()
@@ -133,22 +146,12 @@ def populated_db(db_engine, sample_segments):
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
-def client(populated_db, db_engine):
+def client(populated_db, make_db_session):
     """FastAPI TestClient with mocked DB (populated with sample data)."""
     from fastapi.testclient import TestClient
     from app.main import app
 
-    Session = sessionmaker(bind=db_engine)
-
-    @contextmanager
-    def _fake():
-        session = Session()
-        try:
-            yield session
-        finally:
-            session.close()
-
-    with patch("app.db.database.get_db_session", _fake), \
-         patch("app.api.routes.get_db_session", _fake), \
-         patch("app.workers.tasks.get_db_session", _fake):
+    with patch("app.db.database.get_db_session", make_db_session), \
+         patch("app.api.routes.get_db_session", make_db_session), \
+         patch("app.workers.tasks.get_db_session", make_db_session):
         yield TestClient(app)
