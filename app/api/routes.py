@@ -34,15 +34,13 @@ async def health_check():
 
 @router.post("/subtitle/generate", response_model=GenerateResponse)
 async def generate_subtitle(req: GenerateRequest):
-    import os
     from pathlib import Path
 
-    video_path = Path(req.video_path)
-    if not video_path.exists():
-        raise HTTPException(status_code=404, detail=f"Video not found: {req.video_path}")
+    video_path_str = req.video_path.strip()
+    if not video_path_str:
+        raise HTTPException(status_code=422, detail="video_path must not be empty")
 
-    video_hash = compute_video_hash(str(video_path))
-    duration = _get_duration(str(video_path))
+    video_path = Path(video_path_str)
 
     with get_db_session() as db:
         # Check if video already processed with all subtitles
@@ -67,7 +65,16 @@ async def generate_subtitle(req: GenerateRequest):
                         status="done",
                     )
 
-        # Create or update video record
+    # For new videos, verify the file exists
+    if not video_path.exists():
+        raise HTTPException(status_code=404, detail=f"Video not found: {req.video_path}")
+
+    video_hash = compute_video_hash(str(video_path))
+    duration = _get_duration(str(video_path))
+
+    with get_db_session() as db:
+        # Re-check in case of race condition
+        existing_video = db.query(Video).filter(Video.path == str(video_path)).first()
         if existing_video:
             video = existing_video
         else:

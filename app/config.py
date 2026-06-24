@@ -8,10 +8,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- Paths ---
-MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", "/media"))
-SUBTITLE_ROOT = Path(os.getenv("SUBTITLE_ROOT", "/data/subtitles"))
-TEMP_DIR = Path(os.getenv("TEMP_DIR", "/data/temp"))
-DB_DIR = Path(os.getenv("DB_DIR", "/data/db"))
+_BASE_DIR = Path(__file__).resolve().parent.parent  # project root
+
+MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", str(_BASE_DIR / "data" / "media")))
+SUBTITLE_ROOT = Path(os.getenv("SUBTITLE_ROOT", str(_BASE_DIR / "data" / "subtitles")))
+TEMP_DIR = Path(os.getenv("TEMP_DIR", str(_BASE_DIR / "data" / "temp")))
+DB_DIR = Path(os.getenv("DB_DIR", str(_BASE_DIR / "data" / "db")))
 
 # Ensure dirs exist
 SUBTITLE_ROOT.mkdir(parents=True, exist_ok=True)
