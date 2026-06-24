@@ -11,7 +11,7 @@ import pytest
 # ──────────────────────────────────────────────────────────────
 
 def _gemini_response(translations: list[str]):
-    """Build a fake Gemini response object."""
+    """Build a fake Gemini response object (google-genai SDK)."""
     resp = MagicMock()
     resp.text = json.dumps(translations, ensure_ascii=False)
     return resp
@@ -26,7 +26,7 @@ def _openai_response(translations: list[str]):
 
 
 # ──────────────────────────────────────────────────────────────
-# translate_batch — Gemini provider
+# translate_batch — Gemini provider (google-genai SDK)
 # ──────────────────────────────────────────────────────────────
 
 class TestTranslateGemini:
@@ -37,13 +37,13 @@ class TestTranslateGemini:
     def test_basic_translation(self, mock_genai):
         from app.services.translator import translate_batch
 
-        mock_model = MagicMock()
-        mock_model.generate_content.return_value = _gemini_response(["你好", "世界"])
-        mock_genai.GenerativeModel.return_value = mock_model
+        mock_client = MagicMock()
+        mock_client.models.generate_content.return_value = _gemini_response(["你好", "世界"])
+        mock_genai.Client.return_value = mock_client
 
         result = translate_batch(["Hello", "World"], source_lang="en")
         assert result == ["你好", "世界"]
-        mock_genai.configure.assert_called_once_with(api_key="fake-key")
+        mock_genai.Client.assert_called_once_with(api_key="fake-key")
 
     @patch("app.services.translator.TRANSLATION_PROVIDER", "gemini")
     @patch("app.services.translator.GEMINI_API_KEY", "fake-key")
@@ -53,9 +53,9 @@ class TestTranslateGemini:
         """If API returns wrong number of translations, raise ValueError."""
         from app.services.translator import translate_batch
 
-        mock_model = MagicMock()
-        mock_model.generate_content.return_value = _gemini_response(["only_one"])
-        mock_genai.GenerativeModel.return_value = mock_model
+        mock_client = MagicMock()
+        mock_client.models.generate_content.return_value = _gemini_response(["only_one"])
+        mock_genai.Client.return_value = mock_client
 
         with pytest.raises(ValueError, match="Translation count mismatch"):
             translate_batch(["A", "B", "C"])
@@ -70,14 +70,14 @@ class TestTranslateGemini:
         from app.services.translator import translate_batch
 
         # Gemini raises
-        mock_model = MagicMock()
-        mock_model.generate_content.side_effect = RuntimeError("Gemini down")
-        mock_genai.GenerativeModel.return_value = mock_model
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = RuntimeError("Gemini down")
+        mock_genai.Client.return_value = mock_client
 
         # OpenAI succeeds
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = _openai_response(["你好"])
-        mock_openai_cls.return_value = mock_client
+        mock_openai_client = MagicMock()
+        mock_openai_client.chat.completions.create.return_value = _openai_response(["你好"])
+        mock_openai_cls.return_value = mock_openai_client
 
         result = translate_batch(["Hello"])
         assert result == ["你好"]
@@ -90,9 +90,9 @@ class TestTranslateGemini:
         """Gemini fails and no OpenAI key → re-raises exception."""
         from app.services.translator import translate_batch
 
-        mock_model = MagicMock()
-        mock_model.generate_content.side_effect = RuntimeError("API error")
-        mock_genai.GenerativeModel.return_value = mock_model
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = RuntimeError("API error")
+        mock_genai.Client.return_value = mock_client
 
         with pytest.raises(RuntimeError, match="API error"):
             translate_batch(["Test"])
@@ -105,11 +105,11 @@ class TestTranslateGemini:
         """Gemini sometimes wraps JSON in markdown code fences."""
         from app.services.translator import translate_batch
 
-        mock_model = MagicMock()
+        mock_client = MagicMock()
         resp = MagicMock()
         resp.text = '```json\n["翻译1", "翻译2"]\n```'
-        mock_model.generate_content.return_value = resp
-        mock_genai.GenerativeModel.return_value = mock_model
+        mock_client.models.generate_content.return_value = resp
+        mock_genai.Client.return_value = mock_client
 
         result = translate_batch(["Hello", "World"])
         assert result == ["翻译1", "翻译2"]
@@ -143,13 +143,13 @@ class TestTranslateOpenAI:
         """OpenAI fails → falls back to Gemini if GEMINI_API_KEY is set."""
         from app.services.translator import translate_batch
 
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = RuntimeError("OpenAI down")
-        mock_openai_cls.return_value = mock_client
+        mock_openai_client = MagicMock()
+        mock_openai_client.chat.completions.create.side_effect = RuntimeError("OpenAI down")
+        mock_openai_cls.return_value = mock_openai_client
 
-        mock_model = MagicMock()
-        mock_model.generate_content.return_value = _gemini_response(["你好"])
-        mock_genai.GenerativeModel.return_value = mock_model
+        mock_gemini_client = MagicMock()
+        mock_gemini_client.models.generate_content.return_value = _gemini_response(["你好"])
+        mock_genai.Client.return_value = mock_gemini_client
 
         result = translate_batch(["Hello"])
         assert result == ["你好"]
@@ -197,12 +197,12 @@ class TestSourceLanguage:
         """Japanese source should map to '日语' in the prompt."""
         from app.services.translator import translate_batch
 
-        mock_model = MagicMock()
-        mock_model.generate_content.return_value = _gemini_response(["你好"])
-        mock_genai.GenerativeModel.return_value = mock_model
+        mock_client = MagicMock()
+        mock_client.models.generate_content.return_value = _gemini_response(["你好"])
+        mock_genai.Client.return_value = mock_client
 
         translate_batch(["こんにちは"], source_lang="ja")
-        prompt_arg = mock_model.generate_content.call_args[0][0]
+        prompt_arg = mock_client.models.generate_content.call_args[1]["contents"]
         assert "日语" in prompt_arg
 
     @patch("app.services.translator.TRANSLATION_PROVIDER", "gemini")
@@ -213,10 +213,10 @@ class TestSourceLanguage:
         """Korean source should map to '韩语' in the prompt."""
         from app.services.translator import translate_batch
 
-        mock_model = MagicMock()
-        mock_model.generate_content.return_value = _gemini_response(["你好"])
-        mock_genai.GenerativeModel.return_value = mock_model
+        mock_client = MagicMock()
+        mock_client.models.generate_content.return_value = _gemini_response(["你好"])
+        mock_genai.Client.return_value = mock_client
 
         translate_batch(["안녕하세요"], source_lang="ko")
-        prompt_arg = mock_model.generate_content.call_args[0][0]
+        prompt_arg = mock_client.models.generate_content.call_args[1]["contents"]
         assert "韩语" in prompt_arg

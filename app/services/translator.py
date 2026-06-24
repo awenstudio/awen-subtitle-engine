@@ -1,7 +1,7 @@
 """Translation service using Gemini (primary) / OpenAI (fallback)"""
 
 import json
-import google.generativeai as genai
+from google import genai
 from openai import OpenAI
 
 from app.config import (
@@ -50,9 +50,8 @@ def translate_batch(texts: list[str], source_lang: str = "ja") -> list[str]:
 
 
 def _translate_gemini(texts: list[str], source_lang: str) -> list[str]:
-    """Translate using Gemini API."""
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    """Translate using Gemini API (google-genai SDK)."""
+    client = genai.Client(api_key=GEMINI_API_KEY)
 
     lang_map = {"ja": "日语", "en": "英语", "ko": "韩语"}
     lang_name = lang_map.get(source_lang, source_lang)
@@ -62,7 +61,10 @@ def _translate_gemini(texts: list[str], source_lang: str) -> list[str]:
     )
     prompt = prompt.replace("字幕翻译专家", f"字幕翻译专家，将{lang_name}翻译为中文")
 
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+    )
     result_text = response.text.strip()
 
     # Parse JSON from response
