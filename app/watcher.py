@@ -12,6 +12,9 @@ from app.db.database import get_db_session
 from app.db.models import Video, Job
 from app.utils.hash import compute_video_hash
 from app.workers.tasks import process_video
+from app.logging import get_logger
+
+logger = get_logger("watcher")
 
 
 class VideoHandler(FileSystemEventHandler):
@@ -53,10 +56,10 @@ class VideoHandler(FileSystemEventHandler):
                 db.commit()
 
                 process_video.delay(job.id)
-                print(f"[Watcher] Queued: {video_path}")
+                logger.info(f"Queued: {video_path}")
 
         except Exception as e:
-            print(f"[Watcher] Error processing {video_path}: {e}")
+            logger.error(f"Error processing {video_path}: {e}")
 
 
 def start_watcher(media_root: str):
@@ -65,7 +68,7 @@ def start_watcher(media_root: str):
     observer = Observer()
     observer.schedule(handler, media_root, recursive=True)
     observer.start()
-    print(f"[Watcher] Watching: {media_root}")
+    logger.info(f"Watching: {media_root}")
 
     try:
         while True:
